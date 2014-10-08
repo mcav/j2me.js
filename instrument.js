@@ -98,6 +98,7 @@ var Instrument = {
   },
 
   measure: function(alternateImpl, ctx, methodInfo) {
+    var key = methodInfo.implKey;
     if (this.profiling) {
       var then = performance.now();
       alternateImpl.call(null, ctx, ctx.current().stack);
