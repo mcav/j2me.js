@@ -200,7 +200,7 @@ Native.create("java/lang/Object.hashCode.()I", function(ctx) {
     return hashCode;
 });
 
-Native.create("java/lang/Object.wait.(J)V", function(ctx, timeout, _) {
+Native.create("java/lang/Object.wait.(J)V", function(ctx, timeout) {
     ctx.wait(this, timeout.toNumber());
 });
 
@@ -225,7 +225,7 @@ Native.create("java/lang/Class.invoke_clinit.()V", function(ctx) {
     }
     var clinit = CLASSES.getMethod(classInfo, "S.<clinit>.()V");
     if (clinit)
-        ctx.pushFrame(clinit, 0);
+        ctx.pushFrame(clinit);
     if (classInfo.superClass)
         ctx.pushClassInitFrame(classInfo.superClass);
     throw VM.Yield;
@@ -270,7 +270,7 @@ Native.create("java/lang/Class.newInstance.()Ljava/lang/Object;", function(ctx) 
         className: className,
         vmc: {},
         vfc: {},
-        constant_pool: [
+        constant_pool: new ConstantPool([
           null,
           { tag: TAGS.CONSTANT_Class, name_index: 2 },
           { bytes: className },
@@ -278,7 +278,7 @@ Native.create("java/lang/Class.newInstance.()Ljava/lang/Object;", function(ctx) 
           { name_index: 5, signature_index: 6 },
           { bytes: "<init>" },
           { bytes: "()V" },
-        ]
+        ])
       },
       code: new Uint8Array([
         0xbb, 0x00, 0x01, // new <idx=1>
@@ -321,7 +321,7 @@ Native.create("java/lang/Float.floatToIntBits.(F)I", (function() {
 Native.create("java/lang/Double.doubleToLongBits.(D)J", (function() {
     var da = new Float64Array(1);
     var ia = new Int32Array(da.buffer);
-    return function(ctx, val, _) {
+    return function(ctx, val) {
         da[0] = val;
         return Long.fromBits(ia[0], ia[1]);
     }
@@ -339,7 +339,7 @@ Native.create("java/lang/Float.intBitsToFloat.(I)F", (function() {
 Native.create("java/lang/Double.longBitsToDouble.(J)D", (function() {
     var da = new Float64Array(1);
     var ia = new Int32Array(da.buffer);
-    return function(ctx, l, _) {
+    return function(ctx, l) {
         ia[0] = l.low_;
         ia[1] = l.high_;
         return da[0];
@@ -392,47 +392,47 @@ Native.create("java/lang/Runtime.totalMemory.()J", function(ctx) {
 Native.create("java/lang/Runtime.gc.()V", function(ctx) {
 });
 
-Native.create("java/lang/Math.floor.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.floor.(D)D", function(ctx, val) {
     return Math.floor(val);
 });
 
-Native.create("java/lang/Math.asin.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.asin.(D)D", function(ctx, val) {
     return Math.asin(val);
 });
 
-Native.create("java/lang/Math.acos.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.acos.(D)D", function(ctx, val) {
     return Math.acos(val);
 });
 
-Native.create("java/lang/Math.atan.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.atan.(D)D", function(ctx, val) {
     return Math.atan(val);
 });
 
-Native.create("java/lang/Math.atan2.(DD)D", function(ctx, x, _1, y, _2) {
+Native.create("java/lang/Math.atan2.(DD)D", function(ctx, x, y) {
     return Math.atan2(x, y);
 });
 
-Native.create("java/lang/Math.sin.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.sin.(D)D", function(ctx, val) {
     return Math.sin(val);
 });
 
-Native.create("java/lang/Math.cos.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.cos.(D)D", function(ctx, val) {
     return Math.cos(val);
 });
 
-Native.create("java/lang/Math.tan.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.tan.(D)D", function(ctx, val) {
     return Math.tan(val);
 });
 
-Native.create("java/lang/Math.sqrt.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.sqrt.(D)D", function(ctx, val) {
     return Math.sqrt(val);
 });
 
-Native.create("java/lang/Math.ceil.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.ceil.(D)D", function(ctx, val) {
     return Math.ceil(val);
 });
 
-Native.create("java/lang/Math.floor.(D)D", function(ctx, val, _) {
+Native.create("java/lang/Math.floor.(D)D", function(ctx, val) {
     return Math.floor(val);
 });
 
@@ -462,7 +462,7 @@ Native.create("java/lang/Thread.start0.()V", function(ctx) {
         className: this.class.className,
         vmc: {},
         vfc: {},
-        constant_pool: [
+        constant_pool: new ConstantPool([
           null,
           { tag: TAGS.CONSTANT_Methodref, class_index: 2, name_and_type_index: 4 },
           { tag: TAGS.CONSTANT_Class, name_index: 3 },
@@ -474,7 +474,7 @@ Native.create("java/lang/Thread.start0.()V", function(ctx) {
           { name_index: 9, signature_index: 10 },
           { bytes: "internalExit" },
           { bytes: "()V" },
-        ],
+        ]),
       },
       code: new Uint8Array([
         0x2a,             // aload_0
@@ -485,7 +485,7 @@ Native.create("java/lang/Thread.start0.()V", function(ctx) {
       ])
     });
 
-    ctx.frames.push(new Frame(syntheticMethod, [ this ], 0));
+    ctx.pushFrame(syntheticMethod, [this]);
     ctx.resume();
 });
 
@@ -497,7 +497,7 @@ Native.create("java/lang/Thread.isAlive.()Z", function(ctx) {
     return !!this.alive;
 });
 
-Native.create("java/lang/Thread.sleep.(J)V", function(ctx, delay, _) {
+Native.create("java/lang/Thread.sleep.(J)V", function(ctx, delay) {
     return new Promise(function(resolve, reject) {
         window.setTimeout(resolve, delay.toNumber());
     })

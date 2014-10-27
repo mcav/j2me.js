@@ -4,12 +4,16 @@
 'use strict';
 
 function Context(runtime) {
-  this.frames = [];
+  this.pointer = Module.ccall("new_context", "number", [], []);
   this.runtime = runtime;
   this.runtime.addContext(this);
+  this.frames = [];
+  this.refMap = {};
+  this.nextRefId = 1;
 }
 
 Context.prototype.kill = function() {
+  Module.ccall("delete_context", null, ["number"], [this.pointer]);
   this.runtime.removeContext(this);
 }
 
@@ -18,20 +22,52 @@ Context.prototype.current = function() {
   return frames[frames.length - 1];
 }
 
-Context.prototype.pushFrame = function(methodInfo) {
-  var caller = this.current();
-  var callee = new Frame(methodInfo, caller.stack, caller.stack.length - methodInfo.consumes);
-  this.frames.push(callee);
-  Instrument.callEnterHooks(methodInfo, caller, callee);
-  return callee;
+Context.prototype.refToId = function(obj) {
+  var id = this.nextRefId++;
+  this.refMap[id] = obj;
+  return id;
 }
 
-Context.prototype.popFrame = function() {
-  var callee = this.frames.pop();
-  var caller = this.current();
-  Instrument.callExitHooks(callee.methodInfo, caller, callee);
-  caller.stack.length = callee.localsBase;
-  return caller;
+Context.prototype.idToRef = function(id) {
+  return this.refMap[id];
+}
+
+Context.prototype.maybeLockFrame = function(frame) {
+  if (frame.methodInfo.isSynchronized) {
+    this.monitorEnter(frame.ensureLocked());
+  }
+};
+
+Context.prototype.pushFrame = function(methodInfo, locals) {
+  var frame = new Frame(methodInfo, locals);
+
+  if (locals) {
+    for (var i = 0; i < locals.length; i++) {
+      Module.ccall("frame_set_local_ref", null, ["number", "number", "number"],
+                   [framePointer, i, this.refToId(locals[i])]);
+    }
+  }
+
+  Module.ccall("context_push_frame", "number", ["number", "number"], 
+               [this.pointer, framePointer]);
+  
+  // XXX: Instrument.callEnterHooks(methodInfo, caller, callee);
+  return framePointer;
+}
+
+Context.prototype.popFrame = function(consumes) {
+  var framePointer = Module.ccall("context_get_current_frame", "number", ["number"],
+                                  [this.pointer]);
+  
+  if (this.frameLocks[framePointer]) {
+    this.monitorExit(this.frameLocks[framePointer]);
+  }
+
+  Module.ccall("context_pop_frame", "number", ["number", "number"],
+               [this.pointer, consumes]);
+
+  // XXX: Instrument.callExitHooks(callee.methodInfo, caller, callee);
+  //XXX return caller;
 }
 
 Context.prototype.pushClassInitFrame = function(classInfo) {
@@ -46,7 +82,7 @@ Context.prototype.pushClassInitFrame = function(classInfo) {
       className: classInfo.className,
       vmc: {},
       vfc: {},
-      constant_pool: [
+      constant_pool: new ConstantPool([
         null,
         { tag: TAGS.CONSTANT_Methodref, class_index: 2, name_and_type_index: 4 },
         { tag: TAGS.CONSTANT_Class, name_index: 3 },
@@ -58,7 +94,7 @@ Context.prototype.pushClassInitFrame = function(classInfo) {
         { name_index: 9, signature_index: 10 },
         { bytes: "init9" },
         { bytes: "()V" },
-      ],
+      ]),
     },
     code: new Uint8Array([
         0x2a,             // aload_0
@@ -72,8 +108,11 @@ Context.prototype.pushClassInitFrame = function(classInfo) {
         0xb1,             // return
     ])
   });
-  this.current().stack.push(classInfo.getClassObject(this));
-  this.pushFrame(syntheticMethod);
+
+  Module.ccall("context_push_ref", null, ["number", "number"], 
+               [this.pointer, this.refToId(classInfo.getClassObject(this))]);
+
+  this.pushFrame(this.syntheticMethod);
 }
 
 Context.prototype.raiseException = function(className, message) {
@@ -88,7 +127,7 @@ Context.prototype.raiseException = function(className, message) {
       className: className,
       vmc: {},
       vfc: {},
-      constant_pool: [
+      constant_pool: new ConstantPool([
         null,
         { tag: TAGS.CONSTANT_Class, name_index: 2 },
         { bytes: className },
@@ -98,7 +137,7 @@ Context.prototype.raiseException = function(className, message) {
         { name_index: 7, signature_index: 8 },
         { bytes: "<init>" },
         { bytes: "(Ljava/lang/String;)V" },
-      ],
+      ]),
     },
     code: new Uint8Array([
       0xbb, 0x00, 0x01, // new <idx=1>

@@ -3,58 +3,38 @@
 
 'use strict';
 
-Array.prototype.push2 = function(value) {
-    this.push(value);
-    this.push(null);
-}
-
-Array.prototype.pop2 = function() {
-    this.pop();
-    return this.pop();
-}
-
-Array.prototype.pushType = function(signature, value) {
-    if (signature === "J" || signature === "D") {
-        this.push2(value);
-        return;
-    }
-    this.push(value);
-}
-
-Array.prototype.popType = function(signature) {
-    return (signature === "J" || signature === "D") ? this.pop2() : this.pop();
-}
-
-// A convenience function for retrieving values in reverse order
-// from the end of the stack.  stack.read(1) returns the topmost item
-// on the stack, while stack.read(2) returns the one underneath it.
-Array.prototype.read = function(i) {
-    return this[this.length - i];
-};
-
-
-var Frame = function(methodInfo, locals, localsBase) {
+var Frame = function(methodInfo, locals) {
+    this.pointer = Module.ccall("new_frame", "number", ["number"],
+                                [methodInfo.pointer]);
     this.methodInfo = methodInfo;
     this.cp = methodInfo.classInfo.constant_pool;
-    this.code = methodInfo.code;
-    this.ip = 0;
-
-    this.stack = [];
-
-    this.locals = locals;
-    this.localsBase = localsBase;
 
     this.lockObject = null;
-
     this.profileData = null;
 }
 
-Frame.prototype.getLocal = function(idx) {
-    return this.locals[this.localsBase + idx];
+Frame.prototype.ensureLocked = function() {
+  if (!this.lockObject) {
+    this.lockObject =
+      (this.methodInfo.isStatic ?
+       this.methodInfo.classInfo.getClassObject(this) :
+       this.getLocalRef(0));
+  }
+  return this.lockObject;
 }
 
-Frame.prototype.setLocal = function(idx, value) {
-    this.locals[this.localsBase + idx] = value;
+Frame.prototype.getLocalRef = function(idx) {
+  var refId = Module.ccall("frame_get_local_ref", "number", ["number", "number"],
+                           [this.pointer, idx]);
+  return this.refMap[refId];
+};
+
+Frame.prototype.getLocal = function(type, idx) {
+    return this.stack.get(type, this.localsBase + (idx << 4));
+}
+
+Frame.prototype.setLocal = function(idx, type, value) {
+    this.stack.set(this.localsBase + (idx << 4), type, value);
 }
 
 Frame.prototype.read8 = function() {

@@ -53,7 +53,7 @@ var urlParams = {
   args: "",
 };
 
-load("jvm.js", "classes.js", "libs/zipfile.js", "classinfo.js", "classfile/classfile.js",
+load("jvm.js", "classes.js", "libs/zipfile.js", "classinfo.js",
      "classfile/reader.js", "classfile/tags.js", "classfile/attributetypes.js", "runtime.js",
      "context.js", "libs/encoding.js", "util.js", "frame.js", "arrays.js",
      "classfile/accessflags.js", "instrument.js", "vm.js", "signature.js", "opcodes.js",

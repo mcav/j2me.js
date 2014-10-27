@@ -863,7 +863,7 @@ Native.create("com/sun/midp/l10n/LocalizedStringsBase.getContent.(I)Ljava/lang/S
         var classInfo = CLASSES.getClass("com/sun/midp/i18n/ResourceConstants");
         var constantsMap = new Map();
         classInfo.fields.forEach(function(field) {
-          constantsMap.set(field.name, classInfo.constant_pool[field.constantValue].integer);
+          constantsMap.set(field.name, classInfo.constant_pool.getRaw(field.constantValue).integer);
         });
 
         var data = CLASSES.loadFileFromJar("java/classes.jar", "assets/0/en-US.xml");
@@ -1047,7 +1047,7 @@ MIDP.ConnectionRegistry = {
     }
 };
 
-Native.create("com/sun/midp/io/j2me/push/ConnectionRegistry.poll0.(J)I", function(ctx, time, _) {
+Native.create("com/sun/midp/io/j2me/push/ConnectionRegistry.poll0.(J)I", function(ctx, time) {
     return new Promise(function(resolve, reject) {
         MIDP.ConnectionRegistry.waitForRegistration(function(id) {
             resolve(id);
@@ -1070,7 +1070,7 @@ Native.create("com/sun/midp/io/j2me/push/ConnectionRegistry.add0.(Ljava/lang/Str
     return 0;
 });
 
-Native.create("com/sun/midp/io/j2me/push/ConnectionRegistry.addAlarm0.([BJ)J", function(ctx, jMidlet, jTime, _) {
+Native.create("com/sun/midp/io/j2me/push/ConnectionRegistry.addAlarm0.([BJ)J", function(ctx, jMidlet, jTime) {
     var time = jTime.toNumber(), midlet = util.decodeUtf8(jMidlet);
 
     var lastAlarm = 0;

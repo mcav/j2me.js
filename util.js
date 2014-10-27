@@ -114,6 +114,9 @@ var util = (function () {
   }
 
   function pad(num, len) {
+    if (!num) {
+      num = "";
+    }
     return "0".repeat(len - num.toString().length) + num;
   }
 

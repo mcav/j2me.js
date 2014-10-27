@@ -176,7 +176,7 @@
   NativeConsole.prototype = {
     push: function(item) {
       if (item.matchesCurrentFilters()) {
-        dump(item.message);
+        dump(item.message + "\n");
       }
     }
   };
@@ -241,9 +241,19 @@
 
   //----------------------------------------------------------------
 
+  var ON = false;
 
+  // var N = 0;
+  // var START = 238000
+  // var COUNT = 5000;
   var logAtLevel = function(levelName) {
     var item = new LogItem(levelName, Array.prototype.slice.call(arguments, 1));
+    // N++;
+
+    // if (N < START || N > START + COUNT) {
+    //   return;
+    // }
+
     ENABLED_CONSOLE_TYPES.forEach(function(consoleType) {
       CONSOLES[consoleType].push(item);
     });

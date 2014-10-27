@@ -12,6 +12,49 @@ function JavaException(className, message) {
 JavaException.prototype = Object.create(Error.prototype);
 
 /**
+ * Given a function signature, parse the types of arguments and the
+ * return value. Both arrays and objects are tagged as "L".
+ */
+function parseSignatureArguments(s) {
+  var data = {
+    args: [],
+    returnType: null
+  };
+  var inArguments = true;
+  function add(type) {
+    if (inArguments) {
+      data.args.push(type);
+    } else {
+      data.returnType = type;
+    }
+  }
+  for (var i = s.indexOf("(") + 1; i < s.length; ) {
+    if (s[i] === "L") {
+      add(Stack.OBJECT);
+      i = s.indexOf(";", i + 1) + 1;
+    } else if (s[i] === "[") {
+      while(s[i + 1] === "[") {
+        i++; // handle nested arrays
+      }
+      add(Stack.OBJECT);
+      if (s[i + 1] === "L") {
+        i = s.indexOf(";", i + 2) + 1;
+      } else {
+        i += 2; // on [CI, move to [CI
+      }         //    ^              ^
+    } else if (s[i] === ")") {
+      inArguments = false;
+      i++;
+    } else {
+      add(Stack.stringToType(s[i]));
+      i++;
+    }
+  }
+  return data;
+}
+
+
+/**
  * A simple wrapper for overriding JVM functions to avoid logic errors
  * and simplify implementation:
  *
@@ -24,7 +67,7 @@ JavaException.prototype = Object.create(Error.prototype);
  * - The object reference ("this") is automatically bound to `fn`.
  *
  * - JavaException instances are caught and propagated as Java
-     exceptions; JS TypeError propagates as a NullPointerException.
+ *   exceptions; JS TypeError propagates as a NullPointerException.
  *
  * @param {object} object
  *   Native or Override.
@@ -35,39 +78,31 @@ JavaException.prototype = Object.create(Error.prototype);
  */
 function createAlternateImpl(object, key, fn) {
   var retType = key[key.length - 1];
-  var numArgs = Signature.getINSlots(key.substring(key.lastIndexOf(".") + 1)) + 1;
+  var sig = parseSignatureArguments(key);
+  if (sig.args.length + 1 !== fn.length) {
+    console.error("ERROR: AltImpl argument count mismatch. " +
+                  "Check the signature: " + key);
+  }
   object[key] = function(ctx, stack, isStatic) {
-    var args = new Array(numArgs);
+    var args = new Array(sig.args.length + 1);
 
     args[0] = ctx;
 
-    // NOTE: If your function accepts a Long/Double, you must specify
-    // two arguments (since they take up two stack positions); we
-    // could sugar this someday.
-    for (var i = numArgs - 1; i >= 1; i--) {
-      args[i] = stack.pop();
+    for (var i = sig.args.length - 1; i >= 0; i--) {
+      args[i + 1] = stack.pop(sig.args[i]);
     }
 
     function doReturn(ret) {
-      if (retType === 'V') {
-        return;
+      if (typeof ret === "string") {
+        ret = ctx.newString(ret);
       }
-
-      if (ret === true) {
-        stack.push(1);
-      } else if (ret === false) {
-        stack.push(0);
-      } else if (typeof ret === "string") {
-        stack.push(ctx.newString(ret));
-      } else if (retType === 'J' || retType === 'D') {
-        stack.push2(ret);
-      } else {
-        stack.push(ret);
+      if (sig.returnType !== Stack.VOID) {
+        stack.push(sig.returnType, ret);
       }
     }
 
     try {
-      var self = isStatic ? null : stack.pop();
+      var self = isStatic ? null : stack.pop(Stack.OBJECT);
       var ret = fn.apply(self, args);
       if (ret && ret.then) { // ret.constructor.name == "Promise"
         ret.then(function(res) {
@@ -209,7 +244,7 @@ Override.create("java/io/ByteArrayInputStream.read.([BII)I", function(ctx, b, of
   return len;
 });
 
-Override.create("java/io/ByteArrayInputStream.skip.(J)J", function(ctx, long, _) {
+Override.create("java/io/ByteArrayInputStream.skip.(J)J", function(ctx, long) {
   var n = long.toNumber();
 
   if (this.pos + n > this.count) {

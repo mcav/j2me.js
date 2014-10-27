@@ -436,7 +436,7 @@ Native.create("com/ibm/oti/connection/file/Connection.renameImpl.([B[B)V", funct
     });
 });
 
-Native.create("com/ibm/oti/connection/file/Connection.truncateImpl.([BJ)V", function(ctx, path, newLength, _) {
+Native.create("com/ibm/oti/connection/file/Connection.truncateImpl.([BJ)V", function(ctx, path, newLength) {
     return new Promise(function(resolve, reject) {
         fs.open(util.decodeUtf8(path), function(fd) {
           if (fd == -1) {
@@ -463,7 +463,7 @@ Native.create("com/ibm/oti/connection/file/FCInputStream.availableImpl.(I)I", fu
     return fs.getsize(fd) - fs.getpos(fd);
 });
 
-Native.create("com/ibm/oti/connection/file/FCInputStream.skipImpl.(JI)J", function(ctx, count, _, fd) {
+Native.create("com/ibm/oti/connection/file/FCInputStream.skipImpl.(JI)J", function(ctx, count, fd) {
     var curpos = fs.getpos(fd);
     var size = fs.getsize(fd);
     if (curpos + count.toNumber() > size) {
@@ -545,7 +545,7 @@ Native.create("com/ibm/oti/connection/file/FCOutputStream.openImpl.([B)I", funct
     });
 });
 
-Native.create("com/ibm/oti/connection/file/FCOutputStream.openOffsetImpl.([BJ)I", function(ctx, jPath, offset, _) {
+Native.create("com/ibm/oti/connection/file/FCOutputStream.openOffsetImpl.([BJ)I", function(ctx, jPath, offset) {
     var path = util.decodeUtf8(jPath);
 
     return new Promise(function(resolve, reject) {

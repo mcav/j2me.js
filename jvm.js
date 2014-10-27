@@ -38,11 +38,13 @@ JVM.prototype.startIsolate0 = function(className, args) {
     for (var n = 0; n < args.length; ++n)
         array[n] = args[n] ? ctx.newString(args[n]) : null;
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.<init>.(Ljava/lang/String;[Ljava/lang/String;)V"),
-                              [ isolate, ctx.newString(className.replace(/\./g, "/")), array ], 0));
-    ctx.execute();
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.start.()V"), [ isolate ], 0));
+    ctx.pushFrame(
+      CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.<init>.(Ljava/lang/String;[Ljava/lang/String;)V"),
+      [isolate, ctx.newString(className.replace(/\./g, "/")), array]);
+    ctx.execute();
+    
+    ctx.pushFrame(CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.start.()V"), [isolate]);
     ctx.start();
 }
 
@@ -73,14 +75,15 @@ JVM.prototype.startIsolate = function(isolate) {
     ctx.thread.pid = util.id();
     ctx.thread.alive = true;
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(CLASSES.java_lang_Thread, "I.<init>.(Ljava/lang/String;)V"),
-                              [ runtime.mainThread, ctx.newString("main") ], 0));
+    ctx.pushFrame(
+      CLASSES.getMethod(CLASSES.java_lang_Thread, "I.<init>.(Ljava/lang/String;)V"),
+      [runtime.mainThread, ctx.newString("main")]);
     ctx.execute();
 
     var args = ctx.newArray("[Ljava/lang/String;", mainArgs.length);
     for (var n = 0; n < mainArgs.length; ++n)
         args[n] = mainArgs[n] ? ctx.newString(mainArgs[n]) : null;
 
-    ctx.frames.push(new Frame(entryPoint, [ args ], 0));
+    ctx.pushFrame(entryPoint, [args]);
     ctx.start();
 }
