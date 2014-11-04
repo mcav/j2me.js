@@ -555,35 +555,40 @@ MIDP.Context2D = (function() {
     // because they use layerX and layerY.
 
     var mouse_is_down = false;
-    var mouse_moved = false;
     var posX = 0;
     var posY = 0;
 
     c.addEventListener("mousedown", function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
         mouse_is_down = true;
-        mouse_moved = false;
         posX = ev.layerX;
         posY = ev.layerY;
         MIDP.sendNativeEvent({ type: MIDP.PEN_EVENT, intParam1: MIDP.PRESSED, intParam2: posX, intParam3: posY, intParam4: MIDP.displayId }, MIDP.foregroundIsolateId);
     });
 
     c.addEventListener("mousemove", function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
         var distanceX = ev.layerX - posX;
         var distanceY = ev.layerY - posY;
-        mouse_moved = true;
         if (mouse_is_down) {
             MIDP.sendNativeEvent({ type: MIDP.PEN_EVENT, intParam1: MIDP.DRAGGED, intParam2: ev.layerX, intParam3: ev.layerY, intParam4: MIDP.displayId }, MIDP.foregroundIsolateId);
             MIDP.sendNativeEvent({ type: MIDP.GESTURE_EVENT, intParam1: MIDP.GESTURE_DRAG, intParam2: distanceX, intParam3: distanceY, intParam4: MIDP.displayId,
                                    intParam5: posX, intParam6: posY, floatParam1: 0.0, intParam7: 0, intParam8: 0, intParam9: 0,
                                    intParam10: 0, intParam11: 0, intParam12: 0, intParam13: 0, intParam14: 0, intParam15: 0, intParam16: 0 }, MIDP.foregroundIsolateId);
         }
-        posX = ev.layerX;
-        posY = ev.layerY;
     });
 
+    var TAP_DISTANCE_THRESHOLD = 10;
+
     c.addEventListener("mouseup", function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var distanceX = ev.layerX - posX;
+        var distanceY = ev.layerY - posY;
         mouse_is_down = false;
-        if (!mouse_moved) {
+        if (Math.sqrt(distanceX * distanceX + distanceY * distanceY) < TAP_DISTANCE_THRESHOLD) {
             MIDP.sendNativeEvent({ type: MIDP.GESTURE_EVENT, intParam1: MIDP.GESTURE_TAP, intParam2: 0, intParam3: 0, intParam4: MIDP.displayId,
                                    intParam5: ev.layerX, intParam6: ev.layerY, floatParam1: 0.0, intParam7: 0, intParam8: 0, intParam9: 0,
                                    intParam10: 0, intParam11: 0, intParam12: 0, intParam13: 0, intParam14: 0, intParam15: 0, intParam16: 0 }, MIDP.foregroundIsolateId);
