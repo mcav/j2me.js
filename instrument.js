@@ -126,16 +126,18 @@ var Instrument = {
     this.profiling = false;
   },
 
-  measure: function(alternateImpl, ctx, methodInfo) {
+  measure: function(alternateImpl, ctx, methodInfo, thisObj, args) {
     var key = methodInfo.implKey;
     if (this.profiling) {
       var then = performance.now();
-      alternateImpl.call(null, ctx, ctx.current().stack, methodInfo.isStatic);
+    }
+
+    alternateImpl.call(null, ctx, thisObj, args, methodInfo.isStatic);
+
+    if (this.profiling) {
       var methodProfileData = this.profile[key] || (this.profile[key] = { count: 0, cost: 0 });
       methodProfileData.count++;
       methodProfileData.cost += performance.now() - then;
-    } else {
-      alternateImpl.call(null, ctx, ctx.current().stack, methodInfo.isStatic);
     }
   },
 };

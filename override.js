@@ -11,98 +11,19 @@ function JavaException(className, message) {
 }
 JavaException.prototype = Object.create(Error.prototype);
 
-function boolReturnType(stack, ret) {
-  if (ret) {
-    stack.push(1);
-  } else {
-    stack.push(0);
-  }
-}
-
-function doubleReturnType(stack, ret) {
-  // double types require two stack frames
-  stack.push2(ret);
-}
-
-function voidReturnType(stack, ret) {
-  // no-op
-}
-
-function stringReturnType(stack, ret) {
-  if (typeof ret === "string") {
-    stack.push(util.newString(ret));
-  } else {
-    // already a native string or null
-    stack.push(ret);
-  }
-}
-
-function defaultReturnType(stack, ret) {
-    stack.push(ret);
-}
-
-function intReturnType(stack, ret) {
-    stack.push(ret | 0);
-}
-
-function getReturnFunction(sig) {
-  var retType = sig.substring(sig.lastIndexOf(")") + 1);
-  var fxn;
-  switch (retType) {
-    case 'V': fxn = voidReturnType; break;
-    case 'I': fxn = intReturnType; break;
-    case 'Z': fxn = boolReturnType; break;
-    case 'J':
-    case 'D': fxn = doubleReturnType; break;
-    case 'Ljava/lang/String;': fxn = stringReturnType; break;
-    default: fxn = defaultReturnType; break;
-  }
-
-  return fxn;
-}
-
-function executePromise(stack, ret, doReturn, ctx, key, cb) {
-  if (ret && ret.then) { // ret.constructor.name == "Promise"
-    ret.then(function(res) {
-      if (Instrument.profiling) {
-        Instrument.exitAsyncNative(key, ret);
-      }
-      if (cb) {
-        stack = cb();
-      }
-      doReturn(stack, res);
-    }, function(e) {
-      ctx.raiseException(e.javaClassName, e.message);
-    }).then(ctx.start.bind(ctx));
-
-    if (Instrument.profiling) {
-      Instrument.enterAsyncNative(key, ret);
-    }
-
-    throw VM.Pause;
-  } else {
-    // !!!! Why does this every hapen? Shouldn't we always have a promise here?
-    if (cb) {
-      stack = cb();
-    }
-    doReturn(stack, ret);
-  }
-}
-
 /**
  * A simple wrapper for overriding JVM functions to avoid logic errors
  * and simplify implementation:
  *
  * - Arguments are pushed off the stack based upon the signature of the
  *   function.
- *
  * - The return value is automatically pushed back onto the stack, if
  *   the method signature does not return void.
  *
  * - The object reference ("this") is automatically bound to `fn`.
  *
  * - JavaException instances are caught and propagated as Java
-     exceptions; JS TypeError propagates as a NullPointerException.
+ *   exceptions; JS TypeError propagates as a NullPointerException.
  *
  * @param {object} object
  *   Native or Override.
@@ -114,37 +35,38 @@ function executePromise(stack, ret, doReturn, ctx, key, cb) {
 function createAlternateImpl(object, key, fn, usesPromise) {
   var retType = key[key.length - 1];
   var numArgs = Signature.getINSlots(key.substring(key.lastIndexOf(".") + 1)) + 1;
-  var doReturn = getReturnFunction(key);
-  var postExec = usesPromise ? executePromise : doReturn;
 
-  object[key] = function(ctx, stack, isStatic, cb) {
-    var args = new Array(numArgs);
-
-    args[numArgs - 1] = ctx;
-
-    // NOTE: If your function accepts a Long/Double, you must specify
-    // two arguments (since they take up two stack positions); we
-    // could sugar this someday.
-    for (var i = numArgs - 2; i >= 0; i--) {
-      args[i] = stack.pop();
-    }
-
+  object[key] = function() {
     try {
-      var self = isStatic ? null : stack.pop();
-      var ret = fn.apply(self, args);
-      postExec(stack, ret, doReturn, ctx, key, cb);
-    } catch(e) {
-      if (e === VM.Pause || e === VM.Yield) {
+      var ret = fn.apply(this, arguments);
+    } catch (e) {
+      if (e instanceof VM.Yield) {
         throw e;
       } else if (e.name === "TypeError") {
         // JavaScript's TypeError is analogous to a NullPointerException.
-        ctx.raiseExceptionAndYield("java/lang/NullPointerException", e);
+        $ctx.raiseExceptionAndYield("java/lang/NullPointerException", e);
       } else if (e.javaClassName) {
-        ctx.raiseExceptionAndYield(e.javaClassName, e.message);
+        $ctx.raiseExceptionAndYield(e.javaClassName, e.message);
       } else {
         console.error(e, e.stack);
-        ctx.raiseExceptionAndYield("java/lang/RuntimeException", e);
+        $ctx.raiseExceptionAndYield("java/lang/RuntimeException", e);
       }
+    }
+    if (ret && ret.then) {
+      var ctx = $ctx;
+      $ctx.pause();
+      ret.then(function(returnValue) {
+        $ctx = ctx;
+        $ctx.resume();
+        $ctx.endInvoke(returnValue);
+      }, function(err) {
+        $ctx = ctx;
+        $ctx.resume();
+        $ctx.endInvokeWithException(err);
+      });
+      return $ctx.yieldNow();
+    } else {
+      return ret;
     }
   };
 }

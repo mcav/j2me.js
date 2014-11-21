@@ -31,7 +31,7 @@ FieldInfo.prototype.toString = function() {
     return "[field " + this.name + "]";
 }
 
-function missingNativeImpl(key, ctx, stack) {
+function missingNativeImpl(key) {
     console.error("Attempted to invoke missing native:", key);
 }
 
@@ -79,32 +79,29 @@ function MethodInfo(opts) {
 
     if (this.isNative) {
         if (this.implKey in Native) {
-            this.alternateImpl = Native[this.implKey];
+            this.invoke = Native[this.implKey];
         } else {
             // Some Native MethodInfos are constructed but never called;
             // that's fine, unless we actually try to call them.
-            this.alternateImpl = missingNativeImpl.bind(null, this.implKey);
+            this.invoke = missingNativeImpl.bind(null, this.implKey);
         }
     } else if (this.implKey in Override) {
-        this.alternateImpl = Override[this.implKey];
-    } else {
-        this.alternateImpl = null;
-
-        if (typeof CC !== "undefined") {
-            var compiledMethod = null;
-            var classMangledName = J2ME.C4.Backend.mangleClass(this.classInfo);
-            var compiledClass = CC[classMangledName];
-            if (compiledClass) {
-                var methodMangledName = J2ME.C4.Backend.mangleMethod(this);
-                compiledMethod = compiledClass.methods[methodMangledName];
-                if (this.isStatic) {
-                    jsGlobal[methodMangledName] = compiledMethod;
-                }
-                console.log("HERE: " + compiledMethod + " : ");
-
+        this.invoke = Override[this.implKey];
+    } else if (typeof CC !== "undefined") {
+        var compiledMethod = null;
+        var classMangledName = J2ME.C4.Backend.mangleClass(this.classInfo);
+        var compiledClass = CC[classMangledName];
+        if (compiledClass) {
+            var methodMangledName = J2ME.C4.Backend.mangleMethod(this);
+            compiledMethod = compiledClass.methods[methodMangledName];
+            if (this.isStatic) {
+                jsGlobal[methodMangledName] = compiledMethod;
             }
-            this.fn = compiledMethod;
+            console.log("HERE: " + compiledMethod + " : ");
         }
+        this.invoke = compiledMethod || VM.invoke;
+    } else {
+        this.invoke = VM.invoke;
     }
 
     this.mangledName = J2ME.C4.Backend.mangleMethod(this);

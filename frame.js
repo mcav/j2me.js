@@ -34,28 +34,24 @@ Array.prototype.read = function(i) {
 };
 
 
-var Frame = function(methodInfo, locals, localsBase) {
+var Frame = function(methodInfo, locals) {
     this.methodInfo = methodInfo;
     this.cp = methodInfo.classInfo.constant_pool;
     this.code = methodInfo.code;
     this.ip = 0;
-
-    this.stack = [];
-
     this.locals = locals;
-    this.localsBase = localsBase;
-
+    this.stack = [];
     this.lockObject = null;
-
     this.profileData = null;
+    this.isInterpreted = (methodInfo.invoke === VM.invoke);
 }
 
 Frame.prototype.getLocal = function(idx) {
-    return this.locals[this.localsBase + idx];
+    return this.locals[idx];
 }
 
 Frame.prototype.setLocal = function(idx, value) {
-    this.locals[this.localsBase + idx] = value;
+    this.locals[idx] = value;
 }
 
 Frame.prototype.read8 = function() {

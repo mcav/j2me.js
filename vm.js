@@ -1,12 +1,16 @@
 /* -*- Mode: Java; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 /* vim: set shiftwidth=4 tabstop=4 autoindent cindent expandtab: */
 
+/*global $ctx */
+
 'use strict';
+
 
 var VM = {};
 
-VM.Yield = {};
-VM.Pause = {};
+VM.Yield = function() {
+
+}
 
 VM.DEBUG = false;
 VM.DEBUG_PRINT_ALL_EXCEPTIONS = false;
@@ -18,158 +22,100 @@ VM.trace = function(type, pid, methodInfo, returnVal) {
                    (returnVal ? (" " + returnVal) : "") + "\n";
 }
 
-VM.execute = function(ctx) {
-    var frame = ctx.current();
+VM.invoke = function(/* args... */) {
+    var frame = $ctx.current();
+    var methodInfo = frame.methodInfo;
 
+    if (methodInfo.isSynchronized) {
+        if (!frame.lockObject) {
+            frame.lockObject = (
+                methodInfo.isStatic ?
+                    methodInfo.classInfo.getClassObject($ctx) :
+                    frame.getLocal(0));
+        }
+        $ctx.monitorEnter(frame.lockObject);
+    }
+
+    frame.ip = 0;
+    // frame.locals and frame.stack are already initialized; just
+    // ignore the `arguments` for this function.
+    return VM.execute($ctx);
+}
+
+VM.execute = function() {
+    var frame = $ctx.current();
     var cp = frame.cp;
     var stack = frame.stack;
     var returnValue = null;
 
-    function pushFrame(methodInfo) {
-        var caller = frame;
-        frame = ctx.pushFrame(methodInfo);
-        stack = frame.stack;
-        cp = frame.cp;
-        if (methodInfo.isSynchronized) {
-            if (!frame.lockObject) {
-                frame.lockObject = methodInfo.isStatic
-                                    ? methodInfo.classInfo.getClassObject(ctx)
-                                    : frame.getLocal(0);
-            }
-
-            ctx.monitorEnter(frame.lockObject);
-        }
-        return frame;
-    }
-
-    function popFrame(consumes) {
-        if (frame.lockObject)
-            ctx.monitorExit(frame.lockObject);
-        var callee = frame;
-        frame = ctx.popFrame();
-        if (frame === null) {
-            returnValue = null;
-            switch (consumes) {
-            case 2:
-                returnValue = callee.stack.pop2();
-                break;
-            case 1:
-                returnValue = callee.stack.pop();
-                break;
-            }
-            return true;
-        }
-        stack = frame.stack;
-        cp = frame.cp;
-        switch (consumes) {
-        case 2:
-            stack.push2(callee.stack.pop2());
-            break;
-        case 1:
-            stack.push(callee.stack.pop());
-            break;
-        }
-        return false;
-    }
-
-
-    function buildExceptionLog(ex, stackTrace) {
-        var className = ex.class.className;
-        var detailMessage = util.fromJavaString(CLASSES.getField(ex.class, "I.detailMessage.Ljava/lang/String;").get(ex));
-        return className + ": " + (detailMessage || "") + "\n" + stackTrace.join("\n") + "\n\n";
-    }
-
-    function throw_(ex, ctx) {
-        var exClass = ex.class;
-
-        var stackTrace = [];
-
-        do {
-            var exception_table = frame.methodInfo.exception_table;
-            var handler_pc = null;
-            for (var i=0; exception_table && i<exception_table.length; i++) {
-                if (frame.ip >= exception_table[i].start_pc && frame.ip <= exception_table[i].end_pc) {
-                    if (exception_table[i].catch_type === 0) {
+    function attemptToHandleException(ex) {
+        var exception_table = frame.methodInfo.exception_table;
+        var handler_pc = null;
+        for (var i=0; exception_table && i<exception_table.length; i++) {
+            if (frame.ip >= exception_table[i].start_pc && frame.ip <= exception_table[i].end_pc) {
+                if (exception_table[i].catch_type === 0) {
+                    // This is the "finally" block.
+                    handler_pc = exception_table[i].handler_pc;
+                } else {
+                    var classInfo = resolve(exception_table[i].catch_type);
+                    if (ex.class.isAssignableTo(classInfo)) {
                         handler_pc = exception_table[i].handler_pc;
-                    } else {
-                        var classInfo = resolve(exception_table[i].catch_type);
-                        if (ex.class.isAssignableTo(classInfo)) {
-                            handler_pc = exception_table[i].handler_pc;
-                            break;
-                        }
+                        break;
                     }
                 }
             }
+        }
 
-            var classInfo = frame.methodInfo.classInfo;
-            if (classInfo && classInfo.className) {
-                stackTrace.push(" - " + classInfo.className + "." + frame.methodInfo.name + "(), bci=" + frame.ip);
+        // If this frame can handle the exception, do it.
+        if (handler_pc != null) {
+            console.log("FOUND Handler");
+            stack.length = 0;
+            stack.push(ex);
+            frame.ip = handler_pc;
+        }
+        // Otherwise, we must bail out of this frame.
+        else {
+            console.log("NO Handler, aborting frame");
+            if (frame.lockObject) {
+                $ctx.monitorExit(frame.lockObject);
             }
-
-            if (handler_pc != null) {
-                stack.length = 0;
-                stack.push(ex);
-                frame.ip = handler_pc;
-
-                if (VM.DEBUG_PRINT_ALL_EXCEPTIONS) {
-                    console.error(buildExceptionLog(ex, stackTrace));
-                }
-
-                return;
-            }
-
-            if (ctx.frames.length == 1) {
-                break;
-            }
-
-            popFrame(0);
-        } while (frame);
-        ctx.kill();
-
-        if (ctx.thread && ctx.thread.waiting && ctx.thread.waiting.length > 0) {
-            console.error(buildExceptionLog(ex, stackTrace));
-
-            ctx.thread.waiting.forEach(function(waitingCtx, n) {
-                ctx.thread.waiting[n] = null;
-                waitingCtx.wakeup(ctx.thread);
-            });
-        } else {
-          throw new Error(buildExceptionLog(ex, stackTrace));
+            return $ctx.endInvokeWithException(ex);
         }
     }
 
     function checkArrayAccess(refArray, idx) {
         if (!refArray) {
-            ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+            $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
         }
         if (idx < 0 || idx >= refArray.length) {
-            ctx.raiseExceptionAndYield("java/lang/ArrayIndexOutOfBoundsException", idx);
+            $ctx.raiseExceptionAndYield("java/lang/ArrayIndexOutOfBoundsException", idx);
         }
     }
 
     function classInitCheck(classInfo, ip) {
-        if (classInfo.isArrayClass || ctx.runtime.initialized[classInfo.className])
+        if (classInfo.isArrayClass || $ctx.runtime.initialized[classInfo.className])
             return;
-        frame.ip = ip;
-        ctx.pushClassInitFrame(classInfo);
-        throw VM.Yield;
+//        frame.ip = ip;
+        $ctx.pushClassInitFrame(classInfo);
     }
 
     function resolve(idx, isStatic) {
         try {
-            return ctx.resolve(cp, idx, isStatic);
+            return $ctx.resolve(cp, idx, isStatic);
         } catch (e) {
             if (e instanceof JavaException) {
-                ctx.raiseExceptionAndYield(e.javaClassName, e.message);
+                $ctx.raiseExceptionAndYield(e.javaClassName, e.message);
             } else {
                 throw e;
             }
         }
     }
 
-    while (true) {
+    try {
+      while (true) {
         var op = frame.read8();
-        // console.trace(ctx.thread.pid, frame.methodInfo.classInfo.className + " " + frame.methodInfo.name + " " + (frame.ip - 1) + " " + OPCODES[op] + " " + stack.join(","));
+//        console.warn(OPCODES[op], frame.ip, frame.methodInfo.implKey, stack.length, frame.locals.length);
+
         switch (op) {
         case 0x00: // nop
             break;
@@ -366,7 +312,7 @@ VM.execute = function(ctx) {
             var refArray = stack.pop();
             checkArrayAccess(refArray, idx);
             if (val && !val.class.isAssignableTo(refArray.class.elementClass)) {
-                ctx.raiseExceptionAndYield("java/lang/ArrayStoreException");
+                $ctx.raiseExceptionAndYield("java/lang/ArrayStoreException");
             }
             refArray[idx] = val;
             break;
@@ -478,7 +424,7 @@ VM.execute = function(ctx) {
             var b = stack.pop();
             var a = stack.pop();
             if (!b) {
-                ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
+                $ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
             }
             stack.push((a === util.INT_MIN && b === -1) ? a : ((a / b)|0));
             break;
@@ -486,7 +432,7 @@ VM.execute = function(ctx) {
             var b = stack.pop2();
             var a = stack.pop2();
             if (b.isZero()) {
-                ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
+                $ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
             }
             stack.push2(a.div(b));
             break;
@@ -504,7 +450,7 @@ VM.execute = function(ctx) {
             var b = stack.pop();
             var a = stack.pop();
             if (!b) {
-                ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
+                $ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
             }
             stack.push(a % b);
             break;
@@ -512,7 +458,7 @@ VM.execute = function(ctx) {
             var b = stack.pop2();
             var a = stack.pop2();
             if (b.isZero()) {
-                ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
+                $ctx.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
             }
             stack.push2(a.modulo(b));
             break;
@@ -799,7 +745,7 @@ VM.execute = function(ctx) {
                 frame.ip++;
             var jmp = frame.read32signed();
             var size = frame.read32();
-            var val = frame.stack.pop();
+            var val = stack.pop();
           lookup:
             for (var i=0; i<size; i++) {
                 var key = frame.read32signed();
@@ -817,7 +763,7 @@ VM.execute = function(ctx) {
             var type = frame.read8();
             var size = stack.pop();
             if (size < 0) {
-                ctx.raiseExceptionAndYield("java/lang/NegativeArraySizeException", size);
+                $ctx.raiseExceptionAndYield("java/lang/NegativeArraySizeException", size);
             }
             stack.push(util.newPrimitiveArray("????ZCFDBSIJ"[type], size));
             break;
@@ -828,7 +774,7 @@ VM.execute = function(ctx) {
                 classInfo = resolve(idx);
             var size = stack.pop();
             if (size < 0) {
-                ctx.raiseExceptionAndYield("java/lang/NegativeArraySizeException", size);
+                $ctx.raiseExceptionAndYield("java/lang/NegativeArraySizeException", size);
             }
             var className = classInfo.className;
             if (className[0] !== "[")
@@ -850,7 +796,7 @@ VM.execute = function(ctx) {
         case 0xbe: // arraylength
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
             stack.push(obj.length);
             break;
@@ -861,7 +807,7 @@ VM.execute = function(ctx) {
                 field = resolve(idx, false);
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
             stack.pushType(field.signature, field.get(obj));
             break;
@@ -873,7 +819,7 @@ VM.execute = function(ctx) {
             var val = stack.popType(field.signature);
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
             field.set(obj, val);
             break;
@@ -883,7 +829,7 @@ VM.execute = function(ctx) {
             if (field.tag)
                 field = resolve(idx, true);
             classInitCheck(field.classInfo, frame.ip-3);
-            var value = ctx.runtime.getStatic(field);
+            var value = $ctx.runtime.getStatic(field);
             if (typeof value === "undefined") {
                 value = util.defaultValue(field.signature);
             }
@@ -895,7 +841,7 @@ VM.execute = function(ctx) {
             if (field.tag)
                 field = resolve(idx, true);
             classInitCheck(field.classInfo, frame.ip-3);
-            ctx.runtime.setStatic(field, stack.popType(field.signature));
+            $ctx.runtime.setStatic(field, stack.popType(field.signature));
             break;
         case 0xbb: // new
             var idx = frame.read16();
@@ -912,7 +858,7 @@ VM.execute = function(ctx) {
                 classInfo = resolve(idx);
             var obj = stack[stack.length - 1];
             if (obj && !obj.class.isAssignableTo(classInfo)) {
-                ctx.raiseExceptionAndYield("java/lang/ClassCastException",
+                $ctx.raiseExceptionAndYield("java/lang/ClassCastException",
                                            obj.class.className + " is not assignable to " +
                                            classInfo.className);
             }
@@ -927,30 +873,25 @@ VM.execute = function(ctx) {
             stack.push(result ? 1 : 0);
             break;
         case 0xbf: // athrow
-            if (ctx.frameSets.length > 0) {
-                // Compiled code can't handle exceptions, so throw a yield to make all the compiled code bailout.
-                frame.ip--;
-                throw VM.Yield;
-            }
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
-            throw_(obj, ctx);
+            attemptToHandleException(obj);
             break;
         case 0xc2: // monitorenter
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
-            ctx.monitorEnter(obj);
+            $ctx.monitorEnter(obj);
             break;
         case 0xc3: // monitorexit
             var obj = stack.pop();
             if (!obj) {
-                ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
             }
-            ctx.monitorExit(obj);
+            $ctx.monitorExit(obj);
             break;
         case 0xc4: // wide
             switch (op = frame.read8()) {
@@ -1002,10 +943,12 @@ VM.execute = function(ctx) {
                 if (isStatic)
                     classInitCheck(methodInfo.classInfo, startip);
             }
+
+            var obj = null;
             if (!isStatic) {
-                var obj = stack[stack.length - methodInfo.consumes];
+                obj = stack[stack.length - methodInfo.consumes];
                 if (!obj) {
-                    ctx.raiseExceptionAndYield("java/lang/NullPointerException");
+                    $ctx.raiseExceptionAndYield("java/lang/NullPointerException");
                 }
                 switch (op) {
                 case OPCODES.invokevirtual:
@@ -1023,77 +966,81 @@ VM.execute = function(ctx) {
             }
 
             if (VM.DEBUG) {
-                VM.trace("invoke", ctx.thread.pid, methodInfo);
-            }
-
-            var alternateImpl = methodInfo.alternateImpl;
-            if (alternateImpl) {
-                Instrument.callPauseHooks(ctx.current());
-                Instrument.measure(alternateImpl, ctx, methodInfo);
-                Instrument.callResumeHooks(ctx.current());
-                break;
+                VM.trace("invoke", $ctx.thread.pid, methodInfo);
             }
 
             if (false && !methodInfo.dontCompile && !methodInfo.fn) {
-              ctx.compileMethodInfo(methodInfo);
+              $ctx.compileMethodInfo(methodInfo);
             }
-            if (methodInfo.fn) {
-                // Take off the arguments from the stack.
-                var args = stack.slice(stack.length - methodInfo.consumes);
-                stack.length -= methodInfo.consumes;
-                // Invoke the compiled function.
-                var returnValue = ctx.invokeCompiledFn(methodInfo, args);
-                // Push return value back on the stack.
-                var returnType = methodInfo.signature[methodInfo.signature.length - 1];
+
+            var returnType = methodInfo.signature[methodInfo.signature.length - 1];
+
+            var args = [];
+
+            var returnValue =
+                    $ctx.beginInvoke(
+                        methodInfo,
+                        stack.splice(stack.length - methodInfo.consumes,
+                                     methodInfo.consumes));
+
+            if (returnValue instanceof VM.Yield) {
+                return returnValue;
+            } else {
+                // Otherwise, we completed the method invocation. Push
+                // return value back on the stack and continue
+                // executing this method.
                 switch (returnType) {
-                    case 'V':
-                        break;
-                    case 'J':
-                    case 'D':
-                        stack.push2(returnValue);
-                        break;
-                    default:
-                        stack.push(returnValue);
-                        break;
+                case 'V':
+                    break;
+                case 'J':
+                case 'D':
+                    stack.push2(returnValue);
+                    break;
+                default:
+                    stack.push(returnValue);
+                    break;
                 }
-                break;
             }
-            pushFrame(methodInfo);
+
             break;
         case 0xb1: // return
-            if (VM.DEBUG) {
-                VM.trace("return", ctx.thread.pid, frame.methodInfo);
-            }
-            var shouldReturn = popFrame(0);
-            if (shouldReturn) {
-               return returnValue;
-            }
-            break;
         case 0xac: // ireturn
         case 0xae: // freturn
         case 0xb0: // areturn
-            if (VM.DEBUG) {
-                VM.trace("return", ctx.thread.pid, frame.methodInfo, stack[stack.length-1]);
-            }
-
-            var shouldReturn = popFrame(1);
-            if (shouldReturn) {
-                return returnValue;
-            }
-            break;
         case 0xad: // lreturn
         case 0xaf: // dreturn
             if (VM.DEBUG) {
-                VM.trace("return", ctx.thread.pid, frame.methodInfo, stack[stack.length-1]);
+                VM.trace("return", $ctx.thread.pid, frame.methodInfo, stack[stack.length-1]);
             }
-            var shouldReturn = popFrame(2);
-            if (shouldReturn) {
-                return returnValue;
+
+            if (frame.lockObject) {
+                $ctx.monitorExit(frame.lockObject);
             }
+
+            var returnValue;
+            if (op === 0xad || op === 0xaf) {
+                returnValue = stack.pop2();
+            } else if (op === 0xb1) {
+                returnValue = undefined; // no return value
+            } else {
+                returnValue = stack.pop();
+            }
+
+            return returnValue;
             break;
         default:
             var opName = OPCODES[op];
             throw new Error("Opcode " + opName + " [" + op + "] not supported.");
-        }
-    };
+        } // end switch
+     }; // end while
+   } // end try
+   catch (ex) {
+       if (ex instanceof VM.Yield) {
+           return;
+       } else {
+           // this places the frame counter in the right place; when we next resume we'll handle it
+           attemptToHandleException(ex);
+           $ctx.yieldNow();
+       }
+   }
 }

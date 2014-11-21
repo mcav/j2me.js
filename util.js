@@ -198,9 +198,18 @@ var util = (function () {
     return "0".repeat(len - num.toString().length) + num;
   }
 
+  function buildExceptionLog(ex, stackTrace) {
+    var className = ex.class.className;
+    var detailMessage = util.fromJavaString(CLASSES.getField(ex.class, "I.detailMessage.Ljava/lang/String;").get(ex));
+    return className + ": " + (detailMessage || "") + "\n" + stackTrace.join("\n") + "\n\n";
+  }
+
+
+
   return {
     INT_MAX: INT_MAX,
     INT_MIN: INT_MIN,
+    buildExceptionLog: buildExceptionLog,
     decodeUtf8: decodeUtf8,
     decodeUtf8Array: decodeUtf8Array,
     javaUTF8Decode: javaUTF8Decode,

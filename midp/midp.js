@@ -344,20 +344,20 @@ Native.create("com/sun/midp/security/Permissions.loadingFinished.()V", function(
     console.warn("Permissions.loadingFinished.()V not implemented");
 });
 
-Native.create("com/sun/midp/main/MIDletSuiteUtils.getIsolateId.()I", function(ctx) {
-    return ctx.runtime.isolate.id;
+Native.create("com/sun/midp/main/MIDletSuiteUtils.getIsolateId.()I", function() {
+    return $ctx.runtime.isolate.id;
 });
 
-Native.create("com/sun/midp/main/MIDletSuiteUtils.registerAmsIsolateId.()V", function(ctx) {
-    MIDP.AMSIsolateId = ctx.runtime.isolate.id;
+Native.create("com/sun/midp/main/MIDletSuiteUtils.registerAmsIsolateId.()V", function() {
+    MIDP.AMSIsolateId = $ctx.runtime.isolate.id;
 });
 
 Native.create("com/sun/midp/main/MIDletSuiteUtils.getAmsIsolateId.()I", function() {
     return MIDP.AMSIsolateId;
 });
 
-Native.create("com/sun/midp/main/MIDletSuiteUtils.isAmsIsolate.()Z", function(ctx) {
-    return MIDP.AMSIsolateId == ctx.runtime.isolate.id;
+Native.create("com/sun/midp/main/MIDletSuiteUtils.isAmsIsolate.()Z", function() {
+    return MIDP.AMSIsolateId == $ctx.runtime.isolate.id;
 });
 
 Native.create("com/sun/midp/main/MIDletSuiteUtils.vmBeginStartUp.(I)V", function(midletIsolateId) {
@@ -748,7 +748,7 @@ Native.create("com/sun/midp/util/isolate/InterIsolateMutex.getID0.(Ljava/lang/St
     return mutex.id;
 });
 
-Native.create("com/sun/midp/util/isolate/InterIsolateMutex.lock0.(I)V", function(id, ctx) {
+Native.create("com/sun/midp/util/isolate/InterIsolateMutex.lock0.(I)V", function(id) {
     return new Promise(function(resolve, reject) {
         var mutex;
         for (var i = 0; i < MIDP.InterIsolateMutexes.length; i++) {
@@ -765,25 +765,25 @@ Native.create("com/sun/midp/util/isolate/InterIsolateMutex.lock0.(I)V", function
 
         if (!mutex.locked) {
             mutex.locked = true;
-            mutex.holder = ctx.runtime.isolate.id;
+            mutex.holder = $ctx.runtime.isolate.id;
             resolve();
             return;
         }
 
-        if (mutex.holder == ctx.runtime.isolate.id) {
+        if (mutex.holder == $ctx.runtime.isolate.id) {
             reject(new JavaException("java/lang/RuntimeException", "Attempting to lock mutex twice within the same Isolate"));
             return;
         }
 
         mutex.waiting.push(function() {
             mutex.locked = true;
-            mutex.holder = ctx.runtime.isolate.id;
+            mutex.holder = $ctx.runtime.isolate.id;
             resolve();
         });
     });
 }, true);
 
-Native.create("com/sun/midp/util/isolate/InterIsolateMutex.unlock0.(I)V", function(id, ctx) {
+Native.create("com/sun/midp/util/isolate/InterIsolateMutex.unlock0.(I)V", function(id) {
     var mutex;
     for (var i = 0; i < MIDP.InterIsolateMutexes.length; i++) {
         if (MIDP.InterIsolateMutexes[i].id == id) {
@@ -800,7 +800,7 @@ Native.create("com/sun/midp/util/isolate/InterIsolateMutex.unlock0.(I)V", functi
         throw new JavaException("java/lang/RuntimeException", "Mutex is not locked");
     }
 
-    if (mutex.holder !== ctx.runtime.isolate.id) {
+    if (mutex.holder !== $ctx.runtime.isolate.id) {
         throw new JavaException("java/lang/RuntimeException", "Mutex is locked by different Isolate");
     }
 
@@ -901,9 +901,9 @@ function(obj, isolateId) {
 });
 
 Native.create("com/sun/midp/events/NativeEventMonitor.waitForNativeEvent.(Lcom/sun/midp/events/NativeEvent;)I",
-function(nativeEvent, ctx) {
+function(nativeEvent) {
     return new Promise(function(resolve, reject) {
-        var isolateId = ctx.runtime.isolate.id;
+        var isolateId = $ctx.runtime.isolate.id;
 
         if (!MIDP.nativeEventQueues[isolateId]) {
           MIDP.nativeEventQueues[isolateId] = [];
@@ -922,11 +922,11 @@ function(nativeEvent, ctx) {
 }, true);
 
 Native.create("com/sun/midp/events/NativeEventMonitor.readNativeEvent.(Lcom/sun/midp/events/NativeEvent;)Z",
-function(obj, ctx) {
-    if (!MIDP.nativeEventQueues[ctx.runtime.isolate.id].length) {
+function(obj) {
+    if (!MIDP.nativeEventQueues[$ctx.runtime.isolate.id].length) {
         return false;
     }
-    MIDP.copyEvent(obj, ctx.runtime.isolate.id);
+    MIDP.copyEvent(obj, $ctx.runtime.isolate.id);
     return true;
 });
 
@@ -970,10 +970,10 @@ Native.create("javax/microedition/lcdui/Display.drawTrustedIcon0.(IZ)V", functio
     console.warn("Display.drawTrustedIcon0.(IZ)V not implemented (" + displayId + ", " + drawTrusted + ")");
 });
 
-Native.create("com/sun/midp/events/EventQueue.sendShutdownEvent.()V", function(ctx) {
+Native.create("com/sun/midp/events/EventQueue.sendShutdownEvent.()V", function() {
     var obj = util.newObject(CLASSES.getClass("com/sun/midp/events/NativeEvent"));
     obj.class.getField("I.type.I").set(obj, MIDP.EVENT_QUEUE_SHUTDOWN);
-    MIDP.sendEvent(obj, ctx.runtime.isolate.id);
+    MIDP.sendEvent(obj, $ctx.runtime.isolate.id);
 });
 
 Native.create("com/sun/midp/main/CommandState.saveCommandState.(Lcom/sun/midp/main/CommandState;)V", function(commandState) {

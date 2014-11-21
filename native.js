@@ -198,15 +198,15 @@ Native.create("com/sun/cldchi/jvm/JVM.unchecked_obj_arraycopy.([Ljava/lang/Objec
         srcOffset += length;
         for (var n = 0; n < length; ++n)
             dst[--dstOffset] = src[--srcOffset];
-    }
-});
+    }}
+);
 
 Native.create("com/sun/cldchi/jvm/JVM.monotonicTimeMillis.()J", function() {
     return Long.fromNumber(performance.now());
 });
 
-Native.create("java/lang/Object.getClass.()Ljava/lang/Class;", function(ctx) {
-    return this.class.getClassObject(ctx);
+Native.create("java/lang/Object.getClass.()Ljava/lang/Class;", function() {
+    return this.class.getClassObject($ctx);
 });
 
 Native.create("java/lang/Object.hashCode.()I", function() {
@@ -216,41 +216,42 @@ Native.create("java/lang/Object.hashCode.()I", function() {
     return hashCode;
 });
 
-Native.create("java/lang/Object.wait.(J)V", function(timeout, _, ctx) {
-    ctx.wait(this, timeout.toNumber());
+Native.create("java/lang/Object.wait.(J)V", function(timeout, _) {
+    $ctx.wait(this, timeout.toNumber());
 });
 
-Native.create("java/lang/Object.notify.()V", function(ctx) {
-    ctx.notify(this);
+Native.create("java/lang/Object.notify.()V", function() {
+    $ctx.notify(this);
 });
 
-Native.create("java/lang/Object.notifyAll.()V", function(ctx) {
-    ctx.notify(this, true);
+Native.create("java/lang/Object.notifyAll.()V", function() {
+    $ctx.notify(this, true);
 });
 
-Native.create("java/lang/Class.invoke_clinit.()V", function(ctx) {
+Native.create("java/lang/Class.invoke_clinit.()V", function() {
     var classInfo = this.vmClass;
     var className = classInfo.className;
-    var runtime = ctx.runtime;
+    var runtime = $ctx.runtime;
     if (runtime.initialized[className] || runtime.pending[className])
         return;
     runtime.pending[className] = true;
     if (className === "com/sun/cldc/isolate/Isolate") {
         // The very first isolate is granted access to the isolate API.
-        ctx.runtime.setStatic(CLASSES.getField(classInfo, "S._API_access_ok.I"), 1);
+        $ctx.runtime.setStatic(CLASSES.getField(classInfo, "S._API_access_ok.I"), 1);
     }
     var clinit = CLASSES.getMethod(classInfo, "S.<clinit>.()V");
-    if (clinit)
-        ctx.pushFrame(clinit, 0);
-    if (classInfo.superClass)
-        ctx.pushClassInitFrame(classInfo.superClass);
-    throw VM.Yield;
+    if (clinit) {
+        $ctx.beginInvoke(clinit);
+    }
+    if (classInfo.superClass) {
+        $ctx.pushClassInitFrame(classInfo.superClass);
+    }
 });
 
-Native.create("java/lang/Class.init9.()V", function(ctx) {
+Native.create("java/lang/Class.init9.()V", function() {
     var classInfo = this.vmClass;
     var className = classInfo.className;
-    var runtime = ctx.runtime;
+    var runtime = $ctx.runtime;
     if (runtime.initialized[className])
         return;
     runtime.pending[className] = false;
@@ -261,7 +262,7 @@ Native.create("java/lang/Class.getName.()Ljava/lang/String;", function() {
     return this.vmClass.className.replace(/\//g, ".");
 });
 
-Native.create("java/lang/Class.forName.(Ljava/lang/String;)Ljava/lang/Class;", function(name, ctx) {
+Native.create("java/lang/Class.forName.(Ljava/lang/String;)Ljava/lang/Class;", function(name) {
     try {
         if (!name)
             throw new Classes.ClassNotFoundException();
@@ -273,10 +274,10 @@ Native.create("java/lang/Class.forName.(Ljava/lang/String;)Ljava/lang/Class;", f
             throw new JavaException("java/lang/ClassNotFoundException", "'" + className + "' not found.");
         throw e;
     }
-    return classInfo.getClassObject(ctx);
+    return classInfo.getClassObject($ctx);
 });
 
-Native.create("java/lang/Class.newInstance.()Ljava/lang/Object;", function(ctx) {
+Native.create("java/lang/Class.newInstance.()Ljava/lang/Object;", function() {
     var className = this.vmClass.className;
     var syntheticMethod = new MethodInfo({
       name: "ClassNewInstanceSynthetic",
@@ -303,8 +304,8 @@ Native.create("java/lang/Class.newInstance.()Ljava/lang/Object;", function(ctx) 
         0xb0              // areturn
       ]),
     });
-    ctx.pushFrame(syntheticMethod);
-    throw VM.Yield;
+
+    return $ctx.beginInvoke(syntheticMethod);
 });
 
 Native.create("java/lang/Class.isInterface.()Z", function() {
@@ -362,9 +363,9 @@ Native.create("java/lang/Double.longBitsToDouble.(J)D", (function() {
     }
 })());
 
-Native.create("java/lang/Throwable.fillInStackTrace.()V", function(ctx) {
+Native.create("java/lang/Throwable.fillInStackTrace.()V", function() {
     this.stackTrace = [];
-    ctx.frames.forEach(function(frame) {
+    $ctx.frames.forEach(function(frame) {
         if (!frame.methodInfo)
             return;
         var methodInfo = frame.methodInfo;
@@ -452,23 +453,23 @@ Native.create("java/lang/Math.floor.(D)D", function(val, _) {
     return Math.floor(val);
 });
 
-Native.create("java/lang/Thread.currentThread.()Ljava/lang/Thread;", function(ctx) {
-    return ctx.thread;
+Native.create("java/lang/Thread.currentThread.()Ljava/lang/Thread;", function() {
+    return $ctx.thread;
 });
 
 Native.create("java/lang/Thread.setPriority0.(II)V", function(oldPriority, newPriority) {
 });
 
-Native.create("java/lang/Thread.start0.()V", function(ctx) {
+Native.create("java/lang/Thread.start0.()V", function() {
     // The main thread starts during bootstrap and don't allow calling start()
     // on already running threads.
-    if (this === ctx.runtime.mainThread || this.alive)
+    if (this === $ctx.runtime.mainThread || this.alive)
         throw new JavaException("java/lang/IllegalThreadStateException");
     this.alive = true;
     this.pid = util.id();
     var run = CLASSES.getMethod(this.class, "I.run.()V");
     // Create a context for the thread and start it.
-    var ctx = new Context(ctx.runtime);
+    var ctx = new Context($ctx.runtime);
     ctx.thread = this;
 
     var syntheticMethod = new MethodInfo({
@@ -501,8 +502,9 @@ Native.create("java/lang/Thread.start0.()V", function(ctx) {
       ])
     });
 
-    ctx.frames.push(new Frame(syntheticMethod, [ this ], 0));
-    ctx.resume();
+    setZeroTimeout(function() {
+      ctx.beginInvoke(syntheticMethod, [this]);
+    }.bind(this));
 });
 
 Native.create("java/lang/Thread.internalExit.()V", function() {
@@ -520,11 +522,11 @@ Native.create("java/lang/Thread.sleep.(J)V", function(delay, _) {
 }, true);
 
 Native.create("java/lang/Thread.yield.()V", function() {
-    throw VM.Yield;
+    $ctx.yieldNow();
 });
 
-Native.create("java/lang/Thread.activeCount.()I", function(ctx) {
-    return ctx.runtime.threadCount;
+Native.create("java/lang/Thread.activeCount.()I", function() {
+    return $ctx.runtime.threadCount;
 });
 
 Native.create("com/sun/cldchi/io/ConsoleOutputStream.write.(I)V", function(ch) {
@@ -602,8 +604,8 @@ Native.create("com/sun/cldc/isolate/Isolate.getStatus.()I", function() {
     return this.runtime ? this.runtime.status : 1; // NEW
 });
 
-Native.create("com/sun/cldc/isolate/Isolate.nativeStart.()V", function(ctx) {
-    ctx.runtime.vm.startIsolate(this);
+Native.create("com/sun/cldc/isolate/Isolate.nativeStart.()V", function() {
+    $ctx.runtime.vm.startIsolate(this);
 });
 
 Native.create("com/sun/cldc/isolate/Isolate.waitStatus.(I)V", function(status) {
@@ -624,8 +626,8 @@ Native.create("com/sun/cldc/isolate/Isolate.waitStatus.(I)V", function(status) {
     }).bind(this));
 }, true);
 
-Native.create("com/sun/cldc/isolate/Isolate.currentIsolate0.()Lcom/sun/cldc/isolate/Isolate;", function(ctx) {
-    return ctx.runtime.isolate;
+Native.create("com/sun/cldc/isolate/Isolate.currentIsolate0.()Lcom/sun/cldc/isolate/Isolate;", function() {
+    return $ctx.runtime.isolate;
 });
 
 Native.create("com/sun/cldc/isolate/Isolate.getIsolates0.()[Lcom/sun/cldc/isolate/Isolate;", function() {
@@ -647,9 +649,9 @@ Native.create("com/sun/cldc/isolate/Isolate.setPriority0.(I)V", function(newPrio
 var links = {};
 var waitingForLinks = {};
 
-Native.create("com/sun/midp/links/LinkPortal.getLinkCount0.()I", function(ctx) {
+Native.create("com/sun/midp/links/LinkPortal.getLinkCount0.()I", function() {
     return new Promise(function(resolve, reject) {
-        var isolateId = ctx.runtime.isolate.id;
+        var isolateId = $ctx.runtime.isolate.id;
 
         if (!links[isolateId]) {
             waitingForLinks[isolateId] = function() {
@@ -663,8 +665,8 @@ Native.create("com/sun/midp/links/LinkPortal.getLinkCount0.()I", function(ctx) {
     });
 }, true);
 
-Native.create("com/sun/midp/links/LinkPortal.getLinks0.([Lcom/sun/midp/links/Link;)V", function(linkArray, ctx) {
-    var isolateId = ctx.runtime.isolate.id;
+Native.create("com/sun/midp/links/LinkPortal.getLinks0.([Lcom/sun/midp/links/Link;)V", function(linkArray) {
+    var isolateId = $ctx.runtime.isolate.id;
 
     for (var i = 0; i < links[isolateId].length; i++) {
         var nativePointer = links[isolateId][i].class.getField("I.nativePointer.I").get(links[isolateId][i]);

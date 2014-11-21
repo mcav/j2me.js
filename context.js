@@ -3,6 +3,9 @@
 
 'use strict';
 
+
+var $ctx;
+
 function Context(runtime) {
   this.frames = [];
   this.frameSets = [];
@@ -12,6 +15,11 @@ function Context(runtime) {
   this.methodInfos = runtime.methodInfos;
   this.classInfos = runtime.classInfos;
   this.fieldInfos = runtime.fieldInfos;
+
+  this.paused = false;
+  this.ignoreYields = false;
+  this.yieldingFrames = [];
+  this.onFramesRanOut = function() { }
 }
 
 Context.prototype.kill = function() {
@@ -23,32 +31,124 @@ Context.prototype.current = function() {
   return frames[frames.length - 1];
 }
 
-Context.prototype.pushFrame = function(methodInfo) {
-  var caller = this.current();
-  var callee;
-  if (caller === undefined) {
-    if (methodInfo.consumes !== 0) {
-      throw new Error("A frame cannot consume arguments from a compiled frame.");
-    }
-    callee = new Frame(methodInfo, [], 0);
-  } else {
-    callee = new Frame(methodInfo, caller.stack.slice(caller.stack.length - methodInfo.consumes), 0);
-    caller.stack.length -= methodInfo.consumes;
-  }
-  this.frames.push(callee);
-  Instrument.callEnterHooks(methodInfo, caller, callee);
-  return callee;
+Context.prototype.pause = function() {
+  this.paused = true;
 }
 
-Context.prototype.popFrame = function() {
-  var callee = this.frames.pop();
-  if (this.frames.length === 0) {
-    return null;
-  }
-  var caller = this.current();
-  Instrument.callExitHooks(callee.methodInfo, caller, callee);
-  return caller;
+Context.prototype.resume = function() {
+  this.paused = false;
+  this.scheduleNextTick();
 }
+
+Context.prototype.beginInvoke = function(methodInfo, locals) {
+  locals = locals || [];
+  // //Instrument.callEnterHooks(methodInfo, caller, callee);
+  // return frame;
+  var thisObj, args, returnValue;
+  if (methodInfo.isStatic) {
+    thisObj = null;
+    args = locals;
+  } else {
+    thisObj = locals[0];
+    args = locals.slice(1);
+  }
+
+  $ctx = this;
+
+  var indent = "";
+  for (var i = 0; i < this.frames.length; i++) {
+    indent += "  ";
+  }
+
+  console.log(this.thread && this.thread.pid, indent, "CALL", methodInfo.implKey);
+  try {
+    this.frames.push(new Frame(methodInfo, locals));
+    return this.endInvoke(methodInfo.invoke.apply(thisObj, args));
+  } catch (e) {
+    return this.endInvokeWithException(e);
+  }
+}
+
+Context.prototype.yieldNow = function() {
+  this.scheduleNextTick();
+  throw new VM.Yield();
+}
+
+Context.prototype.scheduleNextTick = function() {
+  if (this._nextTimeout) {
+    clearTimeout(this._nextTimeout);
+  }
+
+  if (this.paused) {
+    return;
+  }
+
+  this._nextTimeout = window.setZeroTimeout(function() {
+    var frame = this.current();
+    if (frame && frame.isInterpreted) {
+      $ctx = this;
+      VM.execute();
+    }
+  }.bind(this));
+}
+
+Context.prototype.endInvoke = function(returnValue) {
+  if (returnValue instanceof VM.Yield) {
+    return returnValue;
+  } else {
+    var frame = this.frames.pop();
+
+    if (typeof returnValue === "string") {
+      returnValue = util.newString(returnValue);
+    }
+
+    var indent = "";
+    for (var i = 0; i < this.frames.length; i++) {
+      indent += "  ";
+    }
+
+    console.log(this.thread && this.thread.pid, indent, "<---", frame.methodInfo.implKey);
+
+    if (this.frames.length === 0) {
+      this.onFramesRanOut();
+    }
+    return returnValue;
+  }
+}
+
+
+Context.prototype.endInvokeWithException = function(ex) {
+  if (ex instanceof VM.Yield) {
+    throw ex;
+  }
+
+  if (this.frames.length === 0) {
+    this.onFramesRanOut();
+
+    console.error(util.buildExceptionLog(ex, [])); // XXX stackTrace
+
+    if (this.thread && this.thread.waiting && this.thread.waiting.length > 0) {
+      this.thread.waiting.forEach(function(waitingCtx, n) {
+        this.thread.waiting[n] = null;
+        waitingCtx.wakeup($ctx.thread);
+      });
+    } else {
+//      throw new Error(util.buildExceptionLog(ex, stackTrace));
+    }
+  } else {
+    throw ex;
+  }
+}
+
+Context.prototype.yieldInvoke = function(locals, stack, ip) {
+  var frame = ctx.current();
+  frame.locals = locals;
+  frame.stack = stack;
+  frame.ip = ip;
+}
+
+  //Instrument.callExitHooks(callee.methodInfo, caller, callee);
+
 
 Context.prototype.pushClassInitFrame = function(classInfo) {
   if (this.runtime.initialized[classInfo.className])
@@ -88,8 +188,8 @@ Context.prototype.pushClassInitFrame = function(classInfo) {
         0xb1,             // return
     ])
   });
-  this.current().stack.push(classInfo.getClassObject(this));
-  this.pushFrame(syntheticMethod);
+
+  return this.beginInvoke(syntheticMethod, [classInfo.getClassObject(this)]);
 }
 
 Context.prototype.raiseException = function(className, message) {
@@ -124,52 +224,14 @@ Context.prototype.raiseException = function(className, message) {
       0xbf              // athrow
     ])
   });
-  //  pushFrame() is not used since the invoker may be a compiled frame.
-  var callee = new Frame(syntheticMethod, [], 0);
-  this.frames.push(callee);
+
+  return this.beginInvoke(syntheticMethod);
 }
 
 Context.prototype.raiseExceptionAndYield = function(className, message) {
   this.raiseException(className, message);
-  throw VM.Yield;
+  return this.yieldNow();
 }
-
-Context.prototype.nullCheck = function(object) {
-  if (!object) {
-    this.raiseExceptionAndYield("java/lang/NullPointerException");
-  }
-};
-
-Context.prototype.divideByZeroCheck = function(object) {
-  if (object === 0) {
-    this.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
-  }
-};
-
-Context.prototype.divideByZeroCheckLong = function(object) {
-  if (object.isZero()) {
-    this.raiseExceptionAndYield("java/lang/ArithmeticException", "/ by zero");
-  }
-};
-
-Context.prototype.checkCast = function(classInfoId, object) {
-  var classInfo = this.classInfos[classInfoId];
-  if (object && !object.class.isAssignableTo(classInfo)) {
-    this.raiseExceptionAndYield("java/lang/ClassCastException",
-        object.class.className + " is not assignable to " +
-        classInfo.className);
-  }
-};
-
-Context.prototype.invokeCompiledFn = function(methodInfo, args) {
-  args.unshift(this);
-  var fn = methodInfo.fn;
-  this.frameSets.push(this.frames);
-  this.frames = [];
-  var returnValue = fn.apply(null, args);
-  this.frames = this.frameSets.pop();
-  return returnValue;
-};
 
 Context.prototype.compileMethodInfo = function(methodInfo) {
   var fn = J2ME.compileMethodInfo(methodInfo, this, J2ME.CompilationTarget.Runtime);
@@ -180,63 +242,13 @@ Context.prototype.compileMethodInfo = function(methodInfo) {
   }
 };
 
-Context.prototype.execute = function() {
-  Instrument.callResumeHooks(this.current());
-  do {
-    try {
-      VM.execute(this);
-    } catch (e) {
-      switch (e) {
-      case VM.Yield:
-        // Ignore the yield and continue executing instructions on this thread.
-        break;
-      case VM.Pause:
-        Instrument.callPauseHooks(this.current());
-        return;
-      default:
-        throw e;
-      }
-    }
-  } while (this.frames.length !== 0);
-}
-
-Context.prototype.start = function() {
-  var ctx = this;
-  Instrument.callResumeHooks(ctx.current());
-  try {
-    VM.execute(ctx);
-  } catch (e) {
-    switch (e) {
-    case VM.Yield:
-      break;
-    case VM.Pause:
-      Instrument.callPauseHooks(ctx.current());
-      return;
-    default:
-      console.info(e);
-      throw e;
-    }
-  }
-  Instrument.callPauseHooks(ctx.current());
-
-  if (ctx.frames.length === 0) {
-      ctx.kill();
-    return;
-  }
-
-  ctx.resume();
-}
-
-Context.prototype.resume = function() {
-  window.setZeroTimeout(this.start.bind(this));
-}
-
 Context.prototype.block = function(obj, queue, lockLevel) {
   if (!obj[queue])
     obj[queue] = [];
   obj[queue].push(this);
   this.lockLevel = lockLevel;
-  throw VM.Pause;
+  this.pause();
+  return this.yieldNow();
 }
 
 Context.prototype.unblock = function(obj, queue, notifyAll, callback) {
@@ -267,6 +279,7 @@ Context.prototype.wakeup = function(obj) {
 }
 
 Context.prototype.monitorEnter = function(obj) {
+  console.log("monitorEnter", this.thread && this.thread.pid);
   var lock = obj.lock;
   if (!lock) {
     obj.lock = { thread: this.thread, level: 1 };
@@ -280,6 +293,7 @@ Context.prototype.monitorEnter = function(obj) {
 }
 
 Context.prototype.monitorExit = function(obj) {
+  console.log("monitorExit", this.thread && this.thread.pid);
   var lock = obj.lock;
   if (lock.thread !== this.thread)
     this.raiseExceptionAndYield("java/lang/IllegalMonitorStateException");
@@ -400,29 +414,24 @@ Context.prototype.resolve = function(cp, idx, isStatic) {
   return constant;
 };
 
-Context.prototype.triggerBailout = function(e, methodInfoId, compiledDepth, cpi, locals, stack) {
-  throw VM.Yield;
-};
+// Context.prototype.triggerBailout = function(e, methodInfoId, compiledDepth, cpi, locals, stack) {
+//  // throw VM.Yield;
+// };
 
-Context.prototype.JVMBailout = function(e, methodInfoId, compiledDepth, cpi, locals, stack) {
-    var methodInfo = this.methodInfos[methodInfoId];
-    var frame = new Frame(methodInfo, locals, 0);
-    frame.stack = stack;
-    frame.ip = cpi;
-    this.frames.unshift(frame);
-    if (compiledDepth === 0 && this.frameSets.length) {
-      // Append all the current frames to the parent frame set, so a single frame stack
-      // exists when the bailout finishes.
-      var currentFrames = this.frames;
-      this.frames = this.frameSets.pop();
-      for (var i = 0; i < currentFrames.length; i++) {
-        this.frames.push(currentFrames[i]);
-      }
-    }
-};
+// Context.prototype.JVMBailout = function(e, methodInfoId, compiledDepth, cpi, locals, stack) {
+//     // var methodInfo = this.methodInfos[methodInfoId];
+//     // var frame = new Frame(methodInfo, locals);
+//     // frame.stack = stack;
+//     // frame.ip = cpi;
+//     // this.frames.unshift(frame);
+//     // if (compiledDepth === 0 && this.frameSets.length) {
+//     //   // Append all the current frames to the parent frame set, so a single frame stack
+//     //   // exists when the bailout finishes.
+//     //   var currentFrames = this.frames;
+//     //   this.frames = this.frameSets.pop();
+//     //   for (var i = 0; i < currentFrames.length; i++) {
+//     //     this.frames.push(currentFrames[i]);
+//     //   }
+//     // }
+// };
 
-Context.prototype.classInitCheck = function(className) {
-    if (this.runtime.initialized[className])
-        return;
-    throw VM.Yield;
-};

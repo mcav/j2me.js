@@ -38,12 +38,26 @@ JVM.prototype.startIsolate0 = function(className, args) {
     for (var n = 0; n < args.length; ++n)
         array[n] = args[n] ? util.newString(args[n]) : null;
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.<init>.(Ljava/lang/String;[Ljava/lang/String;)V"),
-                              [ isolate, util.newString(className.replace(/\./g, "/")), array ], 0));
-    ctx.execute();
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.start.()V"), [ isolate ], 0));
-    ctx.start();
+    var methodInfo = CLASSES.getMethod(com_sun_cldc_isolate_Isolate,
+                                       "I.<init>.(Ljava/lang/String;[Ljava/lang/String;)V");
+
+    var ret = ctx.beginInvoke(methodInfo,
+                              [isolate,
+                               util.newString(className.replace(/\./g, "/")),
+                               array]);
+
+    function invokeStart() {
+        ctx.onFramesRanOut = ctx.kill.bind(ctx);
+        var methodInfo = CLASSES.getMethod(com_sun_cldc_isolate_Isolate, "I.start.()V");
+        ctx.beginInvoke(methodInfo, [isolate]);
+    }
+
+    if (ret instanceof VM.Yield) {
+        ctx.onFramesRanOut = invokeStart();
+    } else {
+        invokeStart();
+    }
 }
 
 JVM.prototype.startIsolate = function(isolate) {
@@ -73,14 +87,25 @@ JVM.prototype.startIsolate = function(isolate) {
     ctx.thread.pid = util.id();
     ctx.thread.alive = true;
 
-    ctx.frames.push(new Frame(CLASSES.getMethod(CLASSES.java_lang_Thread, "I.<init>.(Ljava/lang/String;)V"),
-                              [ runtime.mainThread, util.newString("main") ], 0));
-    ctx.execute();
+    var methodInfo = CLASSES.getMethod(CLASSES.java_lang_Thread, "I.<init>.(Ljava/lang/String;)V");
 
-    var args = util.newArray("[Ljava/lang/String;", mainArgs.length);
-    for (var n = 0; n < mainArgs.length; ++n)
-        args[n] = mainArgs[n] ? util.newString(mainArgs[n]) : null;
+    var ret = ctx.beginInvoke(methodInfo,
+                              [runtime.mainThread,
+                               util.newString("main")]);
 
-    ctx.frames.push(new Frame(entryPoint, [ args ], 0));
-    ctx.start();
+    function invokeMain() {
+        ctx.onFramesRanOut = ctx.kill.bind(ctx);
+        var args = util.newArray("[Ljava/lang/String;", mainArgs.length);
+        for (var n = 0; n < mainArgs.length; ++n)
+            args[n] = mainArgs[n] ? util.newString(mainArgs[n]) : null;
+        ctx.beginInvoke(entryPoint, [args]);
+    }
+
+    if (ret instanceof VM.Yield) {
+        ctx.onFramesRanOut = invokeMain();
+        return ret;
+    } else {
+        return invokeMain();
+    }
+
 }
