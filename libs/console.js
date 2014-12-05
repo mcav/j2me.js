@@ -242,11 +242,43 @@
   //----------------------------------------------------------------
 
 
+  window.contextLogs = new Map();
+  var cleared = false;
   var logAtLevel = function(levelName) {
     var item = new LogItem(levelName, Array.prototype.slice.call(arguments, 1));
-    ENABLED_CONSOLE_TYPES.forEach(function(consoleType) {
-      CONSOLES[consoleType].push(item);
-    });
+
+    var name;
+    if (!$.ctx.thread) {
+      name = 'unknown';
+    } else {
+      name = String.fromCharCode.apply(null, $.ctx.thread.$java_lang_Threadname);
+    }
+    if (name === "")
+      name = "main";
+    var el = window.contextLogs.get(name);
+    if (!el) {
+      el = document.createElement('div');
+      window.contextLogs.set(name, el);
+      el.style.border = '1px solid black';
+      el.style.maxHeight = '100px';
+      el.style.overflow = 'scroll';
+      if (!cleared) {
+        cleared = true;
+        document.body.innerHTML = '';
+      }
+      var header = document.createElement('h1');
+      header.innerHTML = JSON.stringify(name);
+      document.body.appendChild(header);
+      document.body.appendChild(el);
+    }
+    var div = document.createElement('div');
+    div.innerHTML = item.message;
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;
+
+    // ENABLED_CONSOLE_TYPES.forEach(function(consoleType) {
+    //   CONSOLES[consoleType].push(item);
+    // });
   };
 
   window.console = {

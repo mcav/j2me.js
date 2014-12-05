@@ -37,7 +37,6 @@ module J2ME {
       var runtime = new J2ME.Runtime(this);
       var ctx = new Context(runtime);
       var oldCtx = $.ctx;
-      ctx.setCurrent();
 
       isolate.runtime = runtime;
       runtime.isolate = isolate;

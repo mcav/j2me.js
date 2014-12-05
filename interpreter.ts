@@ -2,6 +2,7 @@ module J2ME {
   declare var util;
   declare var Long;
   declare var JavaException;
+  declare var OPCODES;
 
   import Bytecodes = Bytecode.Bytecodes;
   import assert = Debug.assert;
@@ -18,6 +19,7 @@ module J2ME {
   }
 
   export function interpret(ctx: Context) {
+    assert($.ctx === ctx, "ctx must equal $.ctx in interpreter");
     var frame = ctx.current();
 
     var cp = frame.cp;
@@ -191,6 +193,7 @@ module J2ME {
       }
 
       interpreterCounter && interpreterCounter.count(Bytecodes[op]);
+//        console.log(OPCODES[op]);
 
       // console.trace(ctx.thread.pid, frame.methodInfo.classInfo.className + " " + frame.methodInfo.name + " " + (frame.bci - 1) + " " + OPCODES[op] + " " + stack.join(","));
       switch (op) {
@@ -967,6 +970,9 @@ module J2ME {
           if (!obj) {
             ctx.raiseExceptionAndYield("java/lang/NullPointerException");
           }
+          if (/MIDletPeer\.getState/.test(frame.methodInfo.implKey)) {
+              debugger;
+          }
           ctx.monitorEnter(obj);
           break;
         case Bytecodes.MONITOREXIT:
@@ -1026,6 +1032,7 @@ module J2ME {
             if (isStatic)
               classInitCheck(methodInfo.classInfo, startip);
           }
+          console.log(methodInfo.implKey);
           var obj = null;
           var fn;
           if (!isStatic) {

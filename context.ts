@@ -207,9 +207,15 @@ module J2ME {
       throw VM.Yield;
     }
 
-    setCurrent() {
+      setCurrent() {
+          if (typeof $ !== "undefined" && $.ctx.thread && this.thread) {
+       var old = String.fromCharCode.apply(null, (<any>$.ctx.thread).$java_lang_Threadname);
+       var news = String.fromCharCode.apply(null, (<any>this.thread).$java_lang_Threadname);
+        console.log("CONTEXT SWITCH", old, "=>", news);
+          }
       $ = this.runtime;
       $.ctx = this;
+      console.log("CONTEXT START ( from", old, ")");
     }
 
     execute() {
@@ -231,11 +237,14 @@ module J2ME {
           }
         }
       } while (this.frames.length !== 0);
+
+      J2ME.Debug.assert($.ctx === this, "ctx should maybe be the same as $.ctx");
     }
 
     start() {
-      var ctx = this;
+        var ctx = this;
       this.setCurrent();
+      console.log("RESUME");
       Instrument.callResumeHooks(ctx.current());
       try {
         VM.execute(ctx);
@@ -252,6 +261,8 @@ module J2ME {
         }
       }
       Instrument.callPauseHooks(ctx.current());
+
+      J2ME.Debug.assert($.ctx === ctx, "ctx should maybe be the same as $.ctx");
 
       if (ctx.frames.length === 0) {
         ctx.kill();

@@ -121,6 +121,7 @@ module J2ME {
    */
   export class RuntimeTemplate {
     static all = new Set();
+    static allContexts = new Set();
     jvm: JVM;
     status: RuntimeStatus;
     waiting: any [];
@@ -184,11 +185,13 @@ module J2ME {
 
     addContext(ctx) {
       ++this.threadCount;
+      RuntimeTemplate.allContexts.add(this);
       RuntimeTemplate.all.add(this);
     }
 
     removeContext(ctx) {
       if (!--this.threadCount) {
+        RuntimeTemplate.allContexts.delete(this);
         RuntimeTemplate.all.delete(this);
         this.updateStatus(RuntimeStatus.Stopped);
       }
